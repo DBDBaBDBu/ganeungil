@@ -53,7 +53,7 @@ export function makeApi({ store, getKeys }) {
       const { opinet } = await getKeys();
       if (!opinet) throw new ApiError('설정에서 오피넷 API 키를 입력해 주세요.', 'NOKEY');
       await useQuota(store, 'opinet');
-      const u = 'https://www.opinet.co.kr/api/aroundAll.do?certkey=' + encodeURIComponent(opinet) +
+      const u = 'https://www.opinet.co.kr/api/aroundAll.do?code=' + encodeURIComponent(opinet) + '&certkey=' + encodeURIComponent(opinet) +
         '&out=json&x=' + katecXY[0].toFixed(1) + '&y=' + katecXY[1].toFixed(1) + '&radius=' + radius + '&prodcd=' + prodcd + '&sort=1';
       const j = await getJson(u, {}, '오피넷');
       const list = j && j.RESULT && j.RESULT.OIL;
