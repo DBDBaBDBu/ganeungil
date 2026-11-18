@@ -77,3 +77,35 @@ h1,h2,p{margin:0}
 @keyframes sp{to{transform:rotate(360deg)}}
 #toast{position:fixed;left:50%;bottom:28px;transform:translateX(-50%);background:#000;color:#fff;border-radius:12px;padding:12px 16px;font-size:13px;max-width:86%;opacity:0;pointer-events:none;transition:opacity .2s;z-index:60}
 #toast.on{opacity:1}
+
+/* ver.02 */
+.pl{display:flex;gap:6px;flex-wrap:wrap;padding:8px 0 12px;border-top:1px solid var(--seg)}
+.pl small{width:100%;font-size:11px;color:var(--muted)}
+.pl button{border:1px solid var(--line);background:#fff;border-radius:999px;padding:0 12px;height:36px;font-size:13px;font-weight:500;color:#000}
+.pl button.sel{background:#000;color:#fff;border-color:#000;font-weight:700}
+.sortrow{display:grid;gap:4px;background:var(--seg);border-radius:12px;padding:4px}
+.sortrow button{height:40px;border-radius:9px;border:0;background:transparent;font-size:14px;font-weight:500;color:#000}
+.sortrow button.on{background:#fff;font-weight:700;box-shadow:0 1px 3px rgba(0,0,0,.16)}
+.res.c2{flex-direction:column;gap:10px}
+.c2 .hd{display:flex;justify-content:space-between;align-items:flex-start;gap:8px}
+.c2 .bt{display:flex;gap:8px;align-items:stretch}
+.c2 .stat{flex:1;display:flex;gap:4px;margin:0;min-width:0}
+.c2 .stat div{flex:1;background:var(--seg);border-radius:10px;padding:6px 4px;text-align:center;white-space:nowrap;font-size:10.5px;color:var(--muted);line-height:1.35}
+.c2 .stat div:nth-child(3){flex:1.6}
+.c2 .stat b{display:block;font-size:13px;color:#000}
+.c2 .stat .g b{color:var(--save)}
+.c2 .stat .o b{color:var(--slow)}
+.c2 .go{height:auto;width:92px;flex:none}
+.res.over{background:#fafafa;border-style:dashed}
+.res.over .price{color:#525252}
+.fold{display:flex;justify-content:space-between;align-items:center;height:44px;border:1px solid var(--line);background:#fff;border-radius:12px;padding:0 14px;font-size:13px;font-weight:700;color:#000;width:100%}
+.nav{display:flex;justify-content:space-between;align-items:center;height:60px;border:1px solid var(--line);background:#fff;border-radius:14px;padding:0 16px;font-size:15px;font-weight:700;color:#000;width:100%}
+.nav span{font-size:13px;font-weight:500;color:var(--muted)}
+.nav i{font-style:normal;font-size:20px;color:#000;margin-left:8px}
+.pcard{border:1px solid var(--line);border-radius:14px;padding:12px 14px;display:flex;flex-direction:column;gap:6px}
+.pcard .h{display:flex;justify-content:space-between;align-items:center}
+.pcard .h b{font-size:15px}
+.pcard .h button{height:36px;padding:0 10px;border:0;background:transparent;color:var(--jam);font-size:13px;font-weight:700}
+.pcard .ad{font-size:13px;color:var(--muted)}
+.ok2{font-size:11px;color:var(--ok);font-weight:700}
+.set .k{display:block;font-size:13px;font-weight:700;margin:2px 0 6px}

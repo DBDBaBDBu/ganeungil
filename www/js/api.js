@@ -49,6 +49,17 @@ export function makeApi({ store, getKeys }) {
       const d = docs[0];
       return { name: d.place_name, lng: +d.x, lat: +d.y };
     },
+    async geocodeAddress(text) {
+      const { kakao } = await getKeys();
+      if (!kakao) throw new ApiError('설정에서 카카오 REST API 키를 입력해 주세요.', 'NOKEY');
+      await useQuota(store, 'local');
+      const j = await getJson('https://dapi.kakao.com/v2/local/search/address.json?size=1&query=' + encodeURIComponent(text), kakaoHead(kakao), '카카오 주소검색');
+      const d = (j.documents || [])[0];
+      if (d) return { lng: +d.x, lat: +d.y };
+      const k = await this.keyword(text, { size: 1 });
+      if (k.length) return { lng: +k[0].x, lat: +k[0].y };
+      throw new ApiError('주소를 찾지 못했습니다. 도로명 또는 지번 주소를 다시 확인해 주세요.', 'NOPLACE');
+    },
     async opinet(katecXY, prodcd, radius = 5000) {
       const { opinet } = await getKeys();
       if (!opinet) throw new ApiError('설정에서 오피넷 API 키를 입력해 주세요.', 'NOKEY');

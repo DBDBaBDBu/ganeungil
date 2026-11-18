@@ -17,10 +17,12 @@ export const store = {
   },
 };
 
-export const DEFAULTS = { kakao: '', opinet: '', kmpl: 12, liters: 40, allowed: 5, fuel: 'B027', recents: ['맥도날드', '치킨', '카페', '편의점'], from: '현재 위치', to: '' };
+export const DEFAULTS = { kakao: '', opinet: '', kmpl: 19, liters: 100, places: [], ver: 2, allowed: 5, fuel: 'B027', recents: ['맥도날드', '치킨', '카페', '편의점'], from: '현재 위치', to: '' };
 export async function loadSettings() {
   const s = (await store.get('settings')) || {};
-  return { ...DEFAULTS, ...s };
+  const m = { ...DEFAULTS, ...s };
+  if (!s.ver || s.ver < 2) { m.kmpl = 19; m.liters = 100; m.ver = 2; await store.set('settings', m); }
+  return m;
 }
 export async function saveSettings(patch) {
   const s = { ...(await loadSettings()), ...patch };

@@ -95,7 +95,7 @@ export function today() {
 }
 
 // 하루 호출 횟수 (store 인터페이스: get(key)/set(key,val))
-export const CAPS = { dir: 250, local: 400, opinet: 250 };
+export const CAPS = { dir: 400, local: 400, opinet: 250 };
 export async function useQuota(store, name, n = 1) {
   const k = 'quota';
   const q = (await store.get(k)) || {};
@@ -119,3 +119,12 @@ export function kakaoRouteUrl({ sp, vp, ep, by = 'car' }) {
 }
 export const fmtMin = s => Math.round(s / 60);
 export const won = n => Number(n).toLocaleString('ko-KR');
+
+export function sortItems(items, key) {
+  const a = [...items];
+  if (key === 'price') a.sort((x, y) => x.price - y.price || x.extraMin - y.extraMin);
+  else if (key === 'time') a.sort((x, y) => x.extraMin - y.extraMin || x.extraM - y.extraM);
+  else if (key === 'dist') a.sort((x, y) => x.extraM - y.extraM || x.extraMin - y.extraMin);
+  else a.sort((x, y) => (y.net ?? 0) - (x.net ?? 0));
+  return a;
+}

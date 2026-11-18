@@ -1,15 +1,15 @@
-// 화면 구성과 흐름 — ver.01
-import { makeKatec, FUELS, quotaView, CAPS, kakaoRouteUrl, parseRoute, won } from './core.js';
-import { makeApi, ApiError } from './api.js';
+// 화면 구성과 흐름 — ver.02
+import { makeKatec, FUELS, quotaView, CAPS, kakaoRouteUrl, parseRoute, won, sortItems } from './core.js';
+import { makeApi } from './api.js';
 import { findStops } from './search.js';
 import { store, loadSettings, saveSettings, pushRecent } from './store.js';
 import { currentPosition, openExternal } from './native.js';
 
-export const VERSION = 'ver.01';
+export const VERSION = 'ver.02';
 const katec = makeKatec(window.proj4);
 const api = makeApi({ store, getKeys: async () => { const s = await loadSettings(); return { kakao: s.kakao.trim(), opinet: s.opinet.trim() }; } });
 const $app = document.getElementById('app');
-const state = { result: null, ctx: null, form: null, hiddenOpen: false };
+const state = { result: null, ctx: null, form: null, hiddenOpen: false, overOpen: false, sort: 'net', field: 'to' };
 
 const esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const ICON_BACK = '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#000" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5l-7 7 7 7"/></svg>';
@@ -18,27 +18,30 @@ const ICON_NAV = '<svg width="16" height="16" viewBox="0 0 24 24" stroke-width="
 const ICON_SEARCH = c => `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="${c}" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>`;
 
 let toastT;
-function toast(msg) { const t = document.getElementById('toast'); t.textContent = msg; t.classList.add('on'); clearTimeout(toastT); toastT = setTimeout(() => t.classList.remove('on'), 3200); }
+function toast(msg) { const t = document.getElementById('toast'); t.textContent = msg; t.classList.add('on'); clearTimeout(toastT); toastT = setTimeout(() => t.classList.remove('on'), 3400); }
 function loading(msg) {
   let el = document.getElementById('loading');
   if (msg === false) { if (el) el.remove(); return; }
   if (!el) { el = document.createElement('div'); el.id = 'loading'; el.className = 'loading'; el.innerHTML = '<div class="spin"></div><div id="lmsg"></div>'; document.body.appendChild(el); }
   document.getElementById('lmsg').textContent = msg;
 }
+const findSaved = (s, name) => (s.places || []).find(p => p.name === String(name).trim());
 
-/* ---------- 화면 1: 검색 입력 ---------- */
+/* ---------- 첫 화면 ---------- */
 async function viewMain() {
   const s = await loadSettings();
   const f = state.form || { what: '주유소', allowed: s.allowed, fuel: s.fuel, from: s.from, to: s.to };
   state.form = f;
   const chips = ['주유소', ...s.recents].slice(0, 5);
+  const places = s.places || [];
   $app.innerHTML = `
   <div class="top"><div class="t" style="gap:4px"><h1 style="line-height:0"><img class="logo" src="img/logo.png" alt="가는길"></h1>
   <p class="sub">가던 길에 ${f.allowed}분 안에 들를 수 있는 곳만 골라 드립니다.</p></div>
   <button class="gear" id="gear" aria-label="설정">${ICON_GEAR}</button></div>
-  <div class="card" style="padding:4px 16px">
+  <div class="card" style="padding:4px 16px 0">
     <div class="row"><span class="dot" style="border-radius:6px;background:#000"></span><label for="from">출발</label><input id="from" type="text" value="${esc(f.from)}"></div>
     <div class="row"><span class="dot" style="border-radius:2px;background:#000"></span><label for="to">도착</label><input id="to" type="text" value="${esc(f.to)}" placeholder="예: 판교역"></div>
+    ${places.length ? `<div class="pl"><small>자주 가는 곳 · 누르면 ${state.field === 'from' ? '출발지' : '도착지'}에 입력됩니다</small>${places.map(p => `<button type="button" data-p="${esc(p.name)}" class="${p.name === f.to || p.name === f.from ? 'sel' : ''}">${esc(p.name)}</button>`).join('')}</div>` : ''}
   </div>
   <div style="display:flex;flex-direction:column;gap:8px">
     <label class="lbl" for="what">경유할 곳</label>
@@ -54,11 +57,21 @@ async function viewMain() {
   <button class="primary" id="go">${ICON_SEARCH('#fff')}경유지 찾기</button>`;
 
   const sync = () => { f.from = $app.querySelector('#from').value; f.to = $app.querySelector('#to').value; f.what = $app.querySelector('#what').value.trim(); };
+  $app.querySelector('#from').addEventListener('focus', () => { state.field = 'from'; });
+  $app.querySelector('#to').addEventListener('focus', () => { state.field = 'to'; });
   $app.querySelector('#gear').onclick = () => { sync(); location.hash = '#/settings'; };
+  const pl = $app.querySelector('.pl');
+  if (pl) pl.onclick = e => { const b = e.target.closest('button'); if (!b) return; sync(); f[state.field] = b.dataset.p; viewMain(); };
   $app.querySelector('#chips').onclick = e => { const b = e.target.closest('button'); if (!b) return; sync(); f.what = b.dataset.c; viewMain(); };
   $app.querySelector('#allowed').onclick = e => { const b = e.target.closest('button'); if (!b) return; sync(); f.allowed = +b.dataset.v; viewMain(); };
   $app.querySelector('#fuel').onclick = e => { const b = e.target.closest('button'); if (!b) return; sync(); f.fuel = b.dataset.v; viewMain(); };
   $app.querySelector('#go').onclick = () => { sync(); run(f); };
+}
+
+async function resolvePlace(text, s, near) {
+  const p = findSaved(s, text);
+  if (p) return { name: p.name, lng: p.lng, lat: p.lat };
+  return api.geocode(text.trim(), near);
 }
 
 async function run(f) {
@@ -69,14 +82,13 @@ async function run(f) {
   loading('출발지 확인 중');
   try {
     const here = (!f.from || f.from === '현재 위치');
-    const fromPos = here ? { ...(await currentPosition()), name: '현재 위치', here: true } : await api.geocode(f.from);
+    const fromPos = here ? { ...(await currentPosition()), name: '현재 위치', here: true } : await resolvePlace(f.from, s);
     loading('도착지 확인 중');
-    const toPos = await api.geocode(f.to, [fromPos.lng, fromPos.lat]);
-    const r = await findStops({ api, katec, from: fromPos, to: toPos, what: f.what, allowedMin: f.allowed, fuel: f.fuel, kmpl: +s.kmpl || 12, liters: +s.liters || 40, onStep: loading });
-    const recents = pushRecent(s.recents, f.what);
-    await saveSettings({ allowed: f.allowed, fuel: f.fuel, from: f.from || '현재 위치', to: f.to, recents });
-    state.result = r; state.hiddenOpen = false;
-    state.ctx = { from: fromPos, to: toPos, what: f.what, allowed: f.allowed, fuel: f.fuel, liters: +s.liters || 40 };
+    const toPos = await resolvePlace(f.to, s, [fromPos.lng, fromPos.lat]);
+    const r = await findStops({ api, katec, from: fromPos, to: toPos, what: f.what, allowedMin: f.allowed, fuel: f.fuel, kmpl: +s.kmpl || 19, liters: +s.liters || 100, onStep: loading });
+    await saveSettings({ allowed: f.allowed, fuel: f.fuel, from: f.from || '현재 위치', to: f.to, recents: pushRecent(s.recents, f.what) });
+    state.result = r; state.hiddenOpen = false; state.overOpen = false; state.sort = f.what === '주유소' ? 'net' : 'time';
+    state.ctx = { from: fromPos, to: toPos, what: f.what, allowed: f.allowed, fuel: f.fuel, liters: +s.liters || 100 };
     loading(false);
     location.hash = f.what === '주유소' ? '#/gas' : '#/place';
   } catch (e) {
@@ -97,60 +109,78 @@ function topBar(sub) {
 }
 function trafficCard() {
   const { bar, base } = state.result;
-  const min = Math.round(base.duration / 60);
-  return `<div class="card" style="padding:14px 16px;display:flex;flex-direction:column;gap:10px">
-    <div class="between"><span class="lbl">경로 혼잡도</span><span class="hint">${bar.jams ? '정체 구간 ' + bar.jams + '곳' : '정체 구간 없음'}</span></div>
+  return `<div class="card" style="padding:12px 16px;display:flex;flex-direction:column;gap:8px">
+    <div class="between"><span class="lbl">경로 혼잡도</span><span class="hint">${bar.jams ? '정체 구간 ' + bar.jams + '곳' : '정체 구간 없음'} · ${Math.round(base.duration / 60)}분 · ${(base.distance / 1000).toFixed(1)}km</span></div>
     <div class="bar" role="img" aria-label="경로 혼잡도">${bar.bars.map(b => `<div class="${b.cls}" style="flex:${b.flex}"></div>`).join('')}</div>
-    <div class="legend"><span><i class="ok"></i>원활</span><span><i class="slow"></i>서행</span><span><i class="jam"></i>정체</span></div>
-    <div class="hint">현재 예상 ${min}분 · ${(base.distance / 1000).toFixed(1)}km</div></div>`;
+    <div class="legend"><span><i class="ok"></i>원활</span><span><i class="slow"></i>서행</span><span><i class="jam"></i>정체</span></div></div>`;
 }
 const bindBack = () => { const b = $app.querySelector('#back'); if (b) b.onclick = () => history.back(); };
 const bindGo = list => $app.querySelectorAll('[data-i]').forEach(b => b.onclick = () => guide(list[+b.dataset.i]));
+const km = m => '+' + (m / 1000).toFixed(1) + 'km';
+function sortBar(opts) {
+  return `<div class="sortrow" style="grid-template-columns:repeat(${opts.length},minmax(0,1fr))" id="sorts">${opts.map(([k, n]) => `<button type="button" data-k="${k}" class="${state.sort === k ? 'on' : ''}">${n}</button>`).join('')}</div>`;
+}
+function bindSort(rerender) { const el = $app.querySelector('#sorts'); if (el) el.onclick = e => { const b = e.target.closest('button'); if (!b) return; state.sort = b.dataset.k; rerender(); }; }
 
-/* ---------- 화면 2: 주유소 결과 ---------- */
-function gasCard(it, i, best) {
-  return `<div class="res ${best ? 'best' : ''}"><div class="l">
+/* ---------- 주유소 결과 ---------- */
+function gasCard(it, i, bestId) {
+  const best = it.id === bestId && !it.over;
+  return `<div class="res c2 ${best ? 'best' : ''} ${it.over ? 'over' : ''}"><div class="hd"><div class="l">
     <div class="name">${best ? '<span class="badge">추천</span>' : ''}<span>${esc(it.name)}</span></div>
-    <div class="m">+${it.extraMin}분 · 경로에서 ${it.offKm.toFixed(1)}km${it.brand ? ' · ' + esc(it.brand) : ''}</div>
-    <div class="s">평균 대비 −${won(Math.round(it.diff))}원/L<br>${state.ctx.liters}L 주유 시 약 ${won(it.net)}원 절약</div></div>
-    <div class="r"><div class="price">${won(it.price)}<small>원/L</small></div>
+    <div class="m">${it.brand ? esc(it.brand) + ' · ' : ''}경로에서 ${it.offKm.toFixed(1)}km</div></div>
+    <div class="price">${won(it.price)}<small>원/L</small></div></div>
+    <div class="bt"><div class="stat"><div class="${it.over ? 'o' : ''}"><b>+${it.extraMin}분</b>${it.over ? '허용 초과' : '추가 시간'}</div><div><b>${km(it.extraM)}</b>추가 거리</div><div class="g"><b>${won(it.net)}원</b>절약 (${state.ctx.liters}L 기준)</div></div>
     <button class="go" data-i="${i}" aria-label="${esc(it.name)} 길안내">${ICON_NAV}길안내</button></div></div>`;
 }
 function viewGas() {
   if (!state.result) return (location.hash = '#/');
   const r = state.result, c = state.ctx;
-  const list = state.hiddenOpen ? [...r.items, ...r.hiddenItems] : r.items;
+  const main = sortItems(state.hiddenOpen ? [...r.items, ...r.hiddenItems] : r.items, state.sort);
+  const over = state.overOpen ? sortItems(r.over, state.sort) : [];
+  const list = [...main, ...over];
+  const bestId = r.items.length ? sortItems(r.items, 'net')[0].id : null;
   $app.innerHTML = topBar(`현재 ${Math.round(r.base.duration / 60)}분 · ${FUELS[c.fuel]} · 우회 ${c.allowed}분 이내`) + trafficCard() +
-    `<div class="between"><h2 style="font-size:15px;font-weight:700">경유 가능 ${r.items.length}곳</h2><span class="hint">절약액이 큰 순</span></div>` +
-    (list.length ? `<div class="cards">${list.map((it, i) => gasCard(it, i, i === 0 && it.net > 0)).join('')}</div>` :
+    `<div class="between"><h2 style="font-size:15px;font-weight:700">경유 가능 ${r.items.length}곳</h2><span class="hint">주변 평균 ${r.avg ? won(r.avg) : '-'}원/L</span></div>` +
+    (r.items.length ? sortBar([['net', '절약액순'], ['price', '가격순'], ['time', '시간순']]) : '') +
+    (list.length ? `<div class="cards">${list.map((it, i) => gasCard(it, i, bestId)).join('')}</div>` :
       `<div class="empty">조건에 맞는 주유소가 없습니다.<br>허용 우회 시간을 늘려 보세요.</div>`) +
+    (r.over.length && !state.overOpen ? `<button type="button" class="fold" id="fold"><span>허용 시간을 넘지만 더 싼 곳 ${r.over.length}곳</span><span>펼치기 ⌄</span></button>` : '') +
     (r.hiddenItems.length && !state.hiddenOpen ? `<div class="note"><span>우회 비용이 절약액보다 큰 ${r.hiddenItems.length}곳은 숨겼습니다.</span><button id="show">보기</button></div>` : '') +
-    `<p class="foot">길안내를 누르면 선택한 곳이 경유지로 들어간 상태로 카카오맵 앱이 열립니다. 가격은 오피넷 기준이라 현장과 다를 수 있습니다.</p>`;
-  bindBack(); bindGo(list);
+    `<p class="foot">길안내를 누르면 선택한 곳이 경유지로 들어간 상태로 카카오맵 앱이 열립니다. 가격은 오피넷 기준이라 현장과 다를 수 있습니다. 절약 = 주변 평균가 대비 ${c.liters}L 기준, 우회 연료비 반영.</p>`;
+  bindBack(); bindGo(list); bindSort(viewGas);
   const sh = $app.querySelector('#show'); if (sh) sh.onclick = () => { state.hiddenOpen = true; viewGas(); };
+  const fo = $app.querySelector('#fold'); if (fo) fo.onclick = () => { state.overOpen = true; viewGas(); };
 }
 
-/* ---------- 화면 3: 일반 장소 결과 ---------- */
+/* ---------- 일반 장소 결과 ---------- */
 function viewPlace() {
   if (!state.result) return (location.hash = '#/');
   const r = state.result, c = state.ctx;
+  const main = sortItems(r.items, state.sort === 'dist' ? 'dist' : 'time');
+  const over = state.overOpen ? sortItems(r.over, state.sort === 'dist' ? 'dist' : 'time') : [];
+  const list = [...main, ...over];
+  const bestId = r.items.length ? sortItems(r.items, 'time')[0].id : null;
   $app.innerHTML = topBar(`현재 ${Math.round(r.base.duration / 60)}분 · 우회 ${c.allowed}분 이내`) + trafficCard() +
-    `<div class="between"><h2 style="font-size:15px;font-weight:700">"${esc(c.what)}" 경유 가능 ${r.items.length}곳</h2><span class="hint">우회가 짧은 순</span></div>` +
-    (r.items.length ? `<div class="cards">${r.items.map((it, i) => `<div class="res p ${i === 0 ? 'best' : ''}"><div class="l">
-      <div class="name">${i === 0 ? '<span class="badge">가장 가까움</span>' : ''}<span>${esc(it.name)}</span></div>
-      <div class="m">+${it.extraMin}분 · 경로에서 ${it.offKm.toFixed(1)}km</div>
-      <div class="m">${esc(it.addr)}</div></div>
-      <div class="r"><button class="go" data-i="${i}" aria-label="${esc(it.name)} 길안내">${ICON_NAV}길안내</button></div></div>`).join('')}</div>` :
+    `<div class="between"><h2 style="font-size:15px;font-weight:700">"${esc(c.what)}" 경유 가능 ${r.items.length}곳</h2></div>` +
+    (r.items.length ? sortBar([['time', '시간순'], ['dist', '추가 거리순']]) : '') +
+    (list.length ? `<div class="cards">${list.map((it, i) => `<div class="res c2 ${it.id === bestId && !it.over ? 'best' : ''} ${it.over ? 'over' : ''}"><div class="hd"><div class="l">
+      <div class="name">${it.id === bestId && !it.over ? '<span class="badge">가장 가까움</span>' : ''}<span>${esc(it.name)}</span></div>
+      <div class="m">${esc(it.addr)}</div></div></div>
+      <div class="bt"><div class="stat"><div class="${it.over ? 'o' : ''}"><b>+${it.extraMin}분</b>${it.over ? '허용 초과' : '추가 시간'}</div><div><b>${km(it.extraM)}</b>추가 거리</div><div><b>${it.offKm.toFixed(1)}km</b>경로에서</div></div>
+      <button class="go" data-i="${i}" aria-label="${esc(it.name)} 길안내">${ICON_NAV}길안내</button></div></div>`).join('')}</div>` :
       `<div class="empty">조건에 맞는 곳이 없습니다.<br>허용 우회 시간을 늘리거나 다른 검색어를 써 보세요.</div>`) +
+    (r.over.length && !state.overOpen ? `<button type="button" class="fold" id="fold"><span>허용 시간을 넘지만 가까운 곳 ${r.over.length}곳</span><span>펼치기 ⌄</span></button>` : '') +
     `<p class="foot">길안내를 누르면 선택한 곳이 경유지로 들어간 상태로 카카오맵 앱이 열립니다.</p>`;
-  bindBack(); bindGo(r.items);
+  bindBack(); bindGo(list); bindSort(viewPlace);
+  const fo = $app.querySelector('#fold'); if (fo) fo.onclick = () => { state.overOpen = true; viewPlace(); };
 }
 
-/* ---------- 화면 4: 설정 ---------- */
+/* ---------- 설정 ---------- */
 async function viewSettings() {
   const s = await loadSettings(), q = await quotaView(store);
-  $app.innerHTML = `<div class="top"><button class="back" id="back" aria-label="뒤로">${ICON_BACK}</button><div class="t"><h1>설정</h1><p>키는 이 휴대폰 안에만 저장됩니다.</p></div></div>
+  $app.innerHTML = `<div class="top"><button class="back" id="back" aria-label="뒤로">${ICON_BACK}</button><div class="t"><h1>설정</h1><p>키와 저장한 장소는 이 휴대폰 안에만 저장됩니다.</p></div></div>
   <div class="set" style="display:flex;flex-direction:column;gap:14px">
+    <button type="button" class="nav" id="goplaces">자주 가는 곳<span>${(s.places || []).length}곳 <i>›</i></span></button>
     <div><label class="k" for="kakao">카카오 REST API 키</label><input id="kakao" type="password" autocomplete="off" value="${esc(s.kakao)}"></div>
     <div><label class="k" for="opinet">오피넷 API 키</label><input id="opinet" type="password" autocomplete="off" value="${esc(s.opinet)}"></div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
@@ -164,12 +194,12 @@ async function viewSettings() {
     <div class="use">오늘 사용량 · 길찾기 ${q.dir}/${CAPS.dir} · 장소검색 ${q.local}/${CAPS.local} · 오피넷 ${q.opinet}/${CAPS.opinet}<br>가는길 ${VERSION}</div>
   </div>`;
   bindBack();
-  const read = () => ({ kakao: $app.querySelector('#kakao').value.trim(), opinet: $app.querySelector('#opinet').value.trim(), kmpl: +$app.querySelector('#kmpl').value || 12, liters: +$app.querySelector('#liters').value || 40 });
+  $app.querySelector('#goplaces').onclick = () => { location.hash = '#/places'; };
+  const read = () => ({ kakao: $app.querySelector('#kakao').value.trim(), opinet: $app.querySelector('#opinet').value.trim(), kmpl: +$app.querySelector('#kmpl').value || 19, liters: +$app.querySelector('#liters').value || 100 });
   $app.querySelector('#save').onclick = async () => { await saveSettings(read()); toast('저장했습니다.'); };
   $app.querySelector('#t1').onclick = async () => {
     await saveSettings(read());
-    const out = $app.querySelector('#tres');
-    out.innerHTML = '';
+    const out = $app.querySelector('#tres'); out.innerHTML = '';
     const line = (name, ok, msg) => { out.insertAdjacentHTML('beforeend', `<div><b class="${ok ? 'ok' : 'no'}">${ok ? '성공' : '실패'}</b><span>${esc(name)}${msg ? ' · ' + esc(msg) : ''}</span></div>`); };
     const tests = [
       ['카카오 장소검색', async () => { const d = await api.keyword('시청', { x: 126.978, y: 37.5665, size: 1 }); if (!d.length) throw new Error('결과 없음'); return d[0].place_name; }],
@@ -184,6 +214,35 @@ async function viewSettings() {
   };
 }
 
+/* ---------- 자주 가는 곳 ---------- */
+async function viewPlaces() {
+  const s = await loadSettings(); const places = s.places || [];
+  $app.innerHTML = `<div class="top"><button class="back" id="back" aria-label="뒤로">${ICON_BACK}</button><div class="t"><h1>자주 가는 곳</h1><p>첫 화면에서 누르면 도착지에 입력됩니다.</p></div></div>
+  <div class="set" style="display:flex;flex-direction:column;gap:12px">
+    ${places.length ? places.map((p, i) => `<div class="pcard"><div class="h"><b>${esc(p.name)}</b><button type="button" data-d="${i}">삭제</button></div><div class="ad">${esc(p.address)} <span class="ok2">· 위치 확인됨</span></div></div>`).join('') : '<div class="empty">저장한 장소가 없습니다.<br>아래에서 추가해 보세요.</div>'}
+    <div class="card" style="padding:14px;display:flex;flex-direction:column;gap:8px;border-style:dashed">
+      <div><label class="k" for="pname">장소 (이름)</label><input id="pname" type="text" placeholder="예: 헬스장" maxlength="12"></div>
+      <div><label class="k" for="paddr">주소</label><input id="paddr" type="text" placeholder="예: 서울 ○○구 ○○로 00"></div>
+      <button class="primary" id="padd" style="height:48px;font-size:15px;border-radius:12px">장소 추가</button>
+      <div class="hint">추가할 때 주소 위치를 한 번 확인해 저장합니다.</div></div>
+  </div>`;
+  bindBack();
+  $app.querySelectorAll('[data-d]').forEach(b => b.onclick = async () => { const next = places.filter((_, i) => i !== +b.dataset.d); await saveSettings({ places: next }); viewPlaces(); });
+  $app.querySelector('#padd').onclick = async () => {
+    const name = $app.querySelector('#pname').value.trim(), address = $app.querySelector('#paddr').value.trim();
+    if (!name || !address) return toast('장소 이름과 주소를 모두 입력해 주세요.');
+    if (name === '현재 위치' || name === '주유소') return toast('사용할 수 없는 이름입니다.');
+    if (places.filter(p => p.name !== name).length >= 12) return toast('최대 12곳까지 저장할 수 있습니다.');
+    if (!s.kakao) return toast('먼저 설정에서 카카오 키를 입력해 주세요.');
+    loading('주소 확인 중');
+    try {
+      const g = await api.geocodeAddress(address);
+      await saveSettings({ places: [...places.filter(p => p.name !== name), { name, address, lng: g.lng, lat: g.lat }] });
+      loading(false); toast('저장했습니다.'); viewPlaces();
+    } catch (e) { loading(false); toast(e.message || '주소를 확인하지 못했습니다.'); }
+  };
+}
+
 /* ---------- 라우터 ---------- */
 async function route() {
   window.scrollTo(0, 0);
@@ -191,6 +250,7 @@ async function route() {
   if (h === '#/gas') viewGas();
   else if (h === '#/place') viewPlace();
   else if (h === '#/settings') await viewSettings();
+  else if (h === '#/places') await viewPlaces();
   else await viewMain();
 }
 window.addEventListener('hashchange', route);
