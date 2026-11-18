@@ -1,0 +1,19 @@
+{
+  "appId": "com.ganeungil.app",
+  "appName": "가는길",
+  "webDir": "www",
+  "backgroundColor": "#FFFFFF",
+  "android": {
+    "allowMixedContent": false
+  },
+  "plugins": {
+    "CapacitorHttp": {
+      "enabled": true
+    },
+    "StatusBar": {
+      "style": "LIGHT",
+      "backgroundColor": "#FFFFFF",
+      "overlaysWebView": false
+    }
+  }
+}
