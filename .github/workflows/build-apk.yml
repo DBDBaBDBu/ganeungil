@@ -5,6 +5,9 @@ on:
   workflow_dispatch:
 permissions:
   contents: write
+concurrency:
+  group: build-apk
+  cancel-in-progress: true
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -19,6 +22,8 @@ jobs:
           distribution: temurin
           java-version: 17
       - run: yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null || true
+      - run: |
+          if [ -f assets/debug.keystore.b64 ]; then mkdir -p ~/.android && tr -d ' \n\r' < assets/debug.keystore.b64 | base64 -d > ~/.android/debug.keystore; fi
       - run: npm ci
       - run: npx cap add android
       - run: node scripts/apply-android.mjs
