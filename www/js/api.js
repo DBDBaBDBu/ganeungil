@@ -25,13 +25,14 @@ const pt = p => p[0] + ',' + p[1];
 
 export function makeApi({ store, getKeys }) {
   return {
-    async directions(origin, dest, waypoints = []) {
+    async directions(origin, dest, waypoints = [], { avoidToll = false } = {}) {
       const { kakao } = await getKeys();
       if (!kakao) throw new ApiError('설정에서 카카오 REST API 키를 입력해 주세요.', 'NOKEY');
       await useQuota(store, 'dir');
       let u = 'https://apis-navi.kakaomobility.com/v1/directions?origin=' + pt(origin) + '&destination=' + pt(dest) +
         '&priority=RECOMMEND&summary=false&alternatives=false&road_details=false';
       if (waypoints.length) u += '&waypoints=' + waypoints.map(pt).join('|');
+      if (avoidToll) u += '&avoid=toll';
       return getJson(u, kakaoHead(kakao), '카카오 길찾기');
     },
     async keyword(query, { x, y, radius, size = 15, sort = 'distance' } = {}) {

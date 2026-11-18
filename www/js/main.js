@@ -5,7 +5,7 @@ import { findStops } from './search.js';
 import { store, loadSettings, saveSettings, pushRecent } from './store.js';
 import { currentPosition, openExternal } from './native.js';
 
-export const VERSION = 'ver.02';
+export const VERSION = 'ver.03';
 const katec = makeKatec(window.proj4);
 const api = makeApi({ store, getKeys: async () => { const s = await loadSettings(); return { kakao: s.kakao.trim(), opinet: s.opinet.trim() }; } });
 const $app = document.getElementById('app');
@@ -30,13 +30,13 @@ const findSaved = (s, name) => (s.places || []).find(p => p.name === String(name
 /* ---------- 첫 화면 ---------- */
 async function viewMain() {
   const s = await loadSettings();
-  const f = state.form || { what: '주유소', allowed: s.allowed, fuel: s.fuel, from: s.from, to: s.to };
+  const f = state.form || { what: '주유소', allowed: s.allowed, fuel: s.fuel, from: s.from, to: s.to, road: s.road || 'free' };
   state.form = f;
   const chips = ['주유소', ...s.recents].slice(0, 5);
   const places = s.places || [];
   $app.innerHTML = `
-  <div class="top"><div class="t" style="gap:4px"><h1 style="line-height:0"><img class="logo" src="img/logo.png" alt="가는길"></h1>
-  <p class="sub">가던 길에 ${f.allowed}분 안에 들를 수 있는 곳만 골라 드립니다.</p></div>
+  <div class="top head"><h1 style="line-height:0"><img class="logo" src="img/logo.png" alt="가는길"></h1>
+  <p class="tag">가는길에 들를 수 있는 곳을<br>빠르게 안내합니다</p>
   <button class="gear" id="gear" aria-label="설정">${ICON_GEAR}</button></div>
   <div class="card" style="padding:4px 16px 0">
     <div class="row"><span class="dot" style="border-radius:6px;background:#000"></span><label for="from">출발</label><input id="from" type="text" value="${esc(f.from)}"></div>
@@ -53,6 +53,9 @@ async function viewMain() {
     <div class="seg" id="allowed">${[3, 5, 10].map(n => `<button type="button" data-v="${n}" class="${n === f.allowed ? 'on' : ''}">${n}분</button>`).join('')}</div></div>
   <div style="display:flex;flex-direction:column;gap:8px"><div class="lbl">유종 <small>(주유소 선택 시)</small></div>
     <div class="seg" id="fuel">${Object.entries(FUELS).map(([k, v]) => `<button type="button" data-v="${k}" class="${k === f.fuel ? 'on' : ''}">${v}</button>`).join('')}</div></div>
+  <div style="display:flex;flex-direction:column;gap:8px"><div class="lbl">도로</div>
+    <div class="seg" id="road" style="grid-template-columns:repeat(2,minmax(0,1fr))">${[['free', '무료도로'], ['toll', '유료도로']].map(([k, n]) => `<button type="button" data-v="${k}" class="${k === f.road ? 'on' : ''}">${n}</button>`).join('')}</div>
+    <div class="hint">${f.road === 'free' ? '유료도로를 뺀 경로로 계산합니다.' : '유료도로를 포함한 추천 경로로 계산합니다.'}</div></div>
   <div class="spacer"></div>
   <button class="primary" id="go">${ICON_SEARCH('#fff')}경유지 찾기</button>`;
 
@@ -65,6 +68,7 @@ async function viewMain() {
   $app.querySelector('#chips').onclick = e => { const b = e.target.closest('button'); if (!b) return; sync(); f.what = b.dataset.c; viewMain(); };
   $app.querySelector('#allowed').onclick = e => { const b = e.target.closest('button'); if (!b) return; sync(); f.allowed = +b.dataset.v; viewMain(); };
   $app.querySelector('#fuel').onclick = e => { const b = e.target.closest('button'); if (!b) return; sync(); f.fuel = b.dataset.v; viewMain(); };
+  $app.querySelector('#road').onclick = e => { const b = e.target.closest('button'); if (!b) return; sync(); f.road = b.dataset.v; viewMain(); };
   $app.querySelector('#go').onclick = () => { sync(); run(f); };
 }
 
@@ -85,10 +89,10 @@ async function run(f) {
     const fromPos = here ? { ...(await currentPosition()), name: '현재 위치', here: true } : await resolvePlace(f.from, s);
     loading('도착지 확인 중');
     const toPos = await resolvePlace(f.to, s, [fromPos.lng, fromPos.lat]);
-    const r = await findStops({ api, katec, from: fromPos, to: toPos, what: f.what, allowedMin: f.allowed, fuel: f.fuel, kmpl: +s.kmpl || 19, liters: +s.liters || 100, onStep: loading });
-    await saveSettings({ allowed: f.allowed, fuel: f.fuel, from: f.from || '현재 위치', to: f.to, recents: pushRecent(s.recents, f.what) });
+    const r = await findStops({ api, katec, from: fromPos, to: toPos, what: f.what, allowedMin: f.allowed, fuel: f.fuel, kmpl: +s.kmpl || 19, liters: +s.liters || 100, avoidToll: f.road === 'free', onStep: loading });
+    await saveSettings({ allowed: f.allowed, fuel: f.fuel, road: f.road, from: f.from || '현재 위치', to: f.to, recents: pushRecent(s.recents, f.what) });
     state.result = r; state.hiddenOpen = false; state.overOpen = false; state.sort = f.what === '주유소' ? 'net' : 'time';
-    state.ctx = { from: fromPos, to: toPos, what: f.what, allowed: f.allowed, fuel: f.fuel, liters: +s.liters || 100 };
+    state.ctx = { from: fromPos, to: toPos, what: f.what, allowed: f.allowed, fuel: f.fuel, liters: +s.liters || 100, road: f.road };
     loading(false);
     location.hash = f.what === '주유소' ? '#/gas' : '#/place';
   } catch (e) {
@@ -108,14 +112,15 @@ function topBar(sub) {
   return `<div class="top"><button class="back" id="back" aria-label="뒤로">${ICON_BACK}</button><div class="t"><h1>${esc(c.from.name)} → ${esc(c.to.name)}</h1><p>${sub}</p></div></div>`;
 }
 function trafficCard() {
-  const { bar, base } = state.result;
-  return `<div class="card" style="padding:12px 16px;display:flex;flex-direction:column;gap:8px">
+  const { bar, base, freeFallback } = state.result;
+  return `${freeFallback ? '<div class="note" style="padding:10px 14px"><span>무료로만 가는 경로가 없어 유료도로를 포함해 계산했습니다.</span></div>' : ''}<div class="card" style="padding:12px 16px;display:flex;flex-direction:column;gap:8px">
     <div class="between"><span class="lbl">경로 혼잡도</span><span class="hint">${bar.jams ? '정체 구간 ' + bar.jams + '곳' : '정체 구간 없음'} · ${Math.round(base.duration / 60)}분 · ${(base.distance / 1000).toFixed(1)}km</span></div>
     <div class="bar" role="img" aria-label="경로 혼잡도">${bar.bars.map(b => `<div class="${b.cls}" style="flex:${b.flex}"></div>`).join('')}</div>
     <div class="legend"><span><i class="ok"></i>원활</span><span><i class="slow"></i>서행</span><span><i class="jam"></i>정체</span></div></div>`;
 }
 const bindBack = () => { const b = $app.querySelector('#back'); if (b) b.onclick = () => history.back(); };
 const bindGo = list => $app.querySelectorAll('[data-i]').forEach(b => b.onclick = () => guide(list[+b.dataset.i]));
+const roadLabel = (c, r) => c.road === 'free' && !r.freeFallback ? '무료도로' : '유료도로 포함';
 const km = m => '+' + (m / 1000).toFixed(1) + 'km';
 function sortBar(opts) {
   return `<div class="sortrow" style="grid-template-columns:repeat(${opts.length},minmax(0,1fr))" id="sorts">${opts.map(([k, n]) => `<button type="button" data-k="${k}" class="${state.sort === k ? 'on' : ''}">${n}</button>`).join('')}</div>`;
@@ -139,7 +144,7 @@ function viewGas() {
   const over = state.overOpen ? sortItems(r.over, state.sort) : [];
   const list = [...main, ...over];
   const bestId = r.items.length ? sortItems(r.items, 'net')[0].id : null;
-  $app.innerHTML = topBar(`현재 ${Math.round(r.base.duration / 60)}분 · ${FUELS[c.fuel]} · 우회 ${c.allowed}분 이내`) + trafficCard() +
+  $app.innerHTML = topBar(`현재 ${Math.round(r.base.duration / 60)}분 · ${FUELS[c.fuel]} · 우회 ${c.allowed}분 이내 · ${roadLabel(c, r)}`) + trafficCard() +
     `<div class="between"><h2 style="font-size:15px;font-weight:700">경유 가능 ${r.items.length}곳</h2><span class="hint">주변 평균 ${r.avg ? won(r.avg) : '-'}원/L</span></div>` +
     (r.items.length ? sortBar([['net', '절약액순'], ['price', '가격순'], ['time', '시간순']]) : '') +
     (list.length ? `<div class="cards">${list.map((it, i) => gasCard(it, i, bestId)).join('')}</div>` :
@@ -160,7 +165,7 @@ function viewPlace() {
   const over = state.overOpen ? sortItems(r.over, state.sort === 'dist' ? 'dist' : 'time') : [];
   const list = [...main, ...over];
   const bestId = r.items.length ? sortItems(r.items, 'time')[0].id : null;
-  $app.innerHTML = topBar(`현재 ${Math.round(r.base.duration / 60)}분 · 우회 ${c.allowed}분 이내`) + trafficCard() +
+  $app.innerHTML = topBar(`현재 ${Math.round(r.base.duration / 60)}분 · 우회 ${c.allowed}분 이내 · ${roadLabel(c, r)}`) + trafficCard() +
     `<div class="between"><h2 style="font-size:15px;font-weight:700">"${esc(c.what)}" 경유 가능 ${r.items.length}곳</h2></div>` +
     (r.items.length ? sortBar([['time', '시간순'], ['dist', '추가 거리순']]) : '') +
     (list.length ? `<div class="cards">${list.map((it, i) => `<div class="res c2 ${it.id === bestId && !it.over ? 'best' : ''} ${it.over ? 'over' : ''}"><div class="hd"><div class="l">

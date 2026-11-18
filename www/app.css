@@ -109,3 +109,5 @@ h1,h2,p{margin:0}
 .pcard .ad{font-size:13px;color:var(--muted)}
 .ok2{font-size:11px;color:var(--ok);font-weight:700}
 .set .k{display:block;font-size:13px;font-weight:700;margin:2px 0 6px}
+
+.head{gap:10px}.head h1{flex:none}.head .tag{flex:1;font-size:11px;line-height:1.35;color:var(--muted);align-self:flex-end;padding-bottom:6px}.head .gear{align-self:flex-start;margin-left:auto}

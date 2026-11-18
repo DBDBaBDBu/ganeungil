@@ -3,9 +3,14 @@ import { parseRoute, trafficBar, samplePoints, distToRoute, estDetourSec, netSav
 
 const K_PRICE = 6, K_NEAR = 4, MAX_SHOW = 4, OVER_EXTRA = 5, OVER_MAX = 2;
 
-export async function findStops({ api, katec, from, to, what, allowedMin, fuel, kmpl, liters, onStep = () => {} }) {
+export async function findStops({ api, katec, from, to, what, allowedMin, fuel, kmpl, liters, avoidToll = false, onStep = () => {} }) {
   onStep('경로 확인 중');
-  const base = parseRoute(await api.directions([from.lng, from.lat], [to.lng, to.lat]));
+  let freeFallback = false;
+  let base = parseRoute(await api.directions([from.lng, from.lat], [to.lng, to.lat], [], { avoidToll }));
+  if (!base.ok && avoidToll) { // 무료로만 갈 수 있는 경로가 없으면 일반 경로로 다시 계산
+    avoidToll = false; freeFallback = true;
+    base = parseRoute(await api.directions([from.lng, from.lat], [to.lng, to.lat], [], { avoidToll }));
+  }
   if (!base.ok) throw new Error('기본 경로를 찾지 못했습니다. ' + base.msg);
   const bar = trafficBar(base);
   const samples = samplePoints(base.pts, base.distance);
@@ -29,7 +34,7 @@ export async function findStops({ api, katec, from, to, what, allowedMin, fuel, 
     }
   }
   const all = [...found.values()].filter(c => c.price == null || c.price > 0);
-  const empty = { base, bar, items: [], over: [], hiddenItems: [], checked: 0, avg: null };
+  const empty = { base, bar, items: [], over: [], hiddenItems: [], checked: 0, avg: null, freeFallback };
   if (!all.length) return empty;
 
   const limit = (allowedMin + 3) * 60 * 1.5;
@@ -50,7 +55,7 @@ export async function findStops({ api, katec, from, to, what, allowedMin, fuel, 
   let i = 0;
   for (const c of top) {
     onStep('우회 시간 확인 중 (' + (++i) + '/' + top.length + ')');
-    const via = parseRoute(await api.directions([from.lng, from.lat], [to.lng, to.lat], [[c.lng, c.lat]]));
+    const via = parseRoute(await api.directions([from.lng, from.lat], [to.lng, to.lat], [[c.lng, c.lat]], { avoidToll }));
     if (!via.ok) continue;
     const extraMin = Math.max(0, fmtMin(via.duration - base.duration));
     const extraM = Math.max(0, via.distance - base.distance);
@@ -61,5 +66,5 @@ export async function findStops({ api, katec, from, to, what, allowedMin, fuel, 
   }
   const items = sortItems(pass, isGas ? 'net' : 'time').slice(0, MAX_SHOW);
   const overShown = items.length < 3 ? sortItems(over, isGas ? 'net' : 'time').slice(0, OVER_MAX) : [];
-  return { base, bar, items, over: overShown, hiddenItems, checked: top.length, avg };
+  return { base, bar, items, over: overShown, hiddenItems, checked: top.length, avg, freeFallback };
 }
